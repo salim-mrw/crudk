@@ -1,46 +1,48 @@
 #!/bin/bash
 
 
-sudo apt update && sudo apt upgrade -y && \
-# ===== VS Code =====
-wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /usr/share/keyrings/packages.microsoft.gpg >/dev/null && \
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list && \
-sudo apt update && sudo apt install -y code && \
-# ===== Chrome =====
-wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb && \
-sudo dpkg -i /tmp/chrome.deb || sudo apt -f install -y && rm /tmp/chrome.deb && \
-# ===== Canva (كويب أب) =====
-cat <<EOF > ~/.local/share/applications/canva.desktop
-[Desktop Entry]
-Name=Canva
-Exec=google-chrome --app=https://www.canva.com/
-Icon=chrome
-Type=Application
-Categories=Graphics;
+# 🟢 تثبيت TigerVNC
+sudo apt update && sudo apt install -y tigervnc-standalone-server tigervnc-common
+
+# 🟢 تعيين باسورد للـ VNC (راح يطلب تدخل يدوي)
+echo "🚨 الآن أدخل باسورد للـ VNC:"
+vncpasswd
+
+# 🟢 إنشاء ملف xstartup لتشغيل واجهة LinuxFX (Cinnamon)
+mkdir -p ~/.vnc
+cat > ~/.vnc/xstartup <<EOF
+#!/bin/sh
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+exec cinnamon-session &
 EOF
-&& \
-# ===== Apache + PHP + MySQL =====
-sudo apt install -y apache2 mysql-server php libapache2-mod-php php-mysql && \
-sudo systemctl enable --now apache2 mysql && \
-# ===== Python + pip + PyCharm =====
-sudo apt install -y python3 python3-pip && \
-sudo snap install pycharm-community --classic && \
-# ===== VNC =====
-sudo apt install -y tigervnc-standalone-server tigervnc-viewer && \
-# ===== Static IP =====
-IFACE=$(ip route | grep '^default' | awk '{print $5}') && \
-sudo bash -c "cat > /etc/netplan/01-static-ip.yaml" <<EONET
-network:
-  version: 2
-  renderer: NetworkManager
-  ethernets:
-    $IFACE:
-      dhcp4: no
-      addresses: [192.168.0.191/24]
-      gateway4: 192.168.0.1
-      nameservers:
-        addresses: [8.8.8.8,1.1.1.1]
-EONET
-&& \
-sudo netplan apply && \
-echo '✅ كل شيء اتثبت وضبط بنجاح! يفضل إعادة التشغيل: sudo reboot
+chmod +x ~/.vnc/xstartup
+
+# 🟢 إنشاء خدمة systemd
+sudo bash -c "cat > /etc/systemd/system/vncserver@.service" <<EOF
+[Unit]
+Description=Start TigerVNC server at startup
+After=syslog.target network.target
+
+[Service]
+Type=forking
+User=$USER
+PAMName=login
+PIDFile=/home/$USER/.vnc/%H:%i.pid
+ExecStartPre=-/usr/bin/vncserver -kill :%i > /dev/null 2>&1
+ExecStart=/usr/bin/vncserver :%i -geometry 1280x800 -depth 24
+ExecStop=/usr/bin/vncserver -kill :%i
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 🟢 إعادة تحميل النظام وتفعيل وتشغيل السيرفر على الشاشة :1 (المنفذ 5901)
+sudo systemctl daemon-reload
+sudo systemctl enable vncserver@1.service
+sudo systemctl start vncserver@1.service
+
+# 🟢 عرض النتيجة
+echo "✅ تم الإعداد بنجاح!"
+echo "🔑 استخدم الباسورد اللي دخلته للاتصال."
+echo "💻 الآن تقدر تتصل عبر:  $(hostname -I | awk '{print $1}'):5901"
